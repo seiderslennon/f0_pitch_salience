@@ -1,0 +1,18 @@
+experiment_name: cqt
+
+dataset:
+  split: 0.9
+  json_path: Data/Training_Validation/MedleyDB-Pitch/medleydb_pitch_metadata.json
+  dataset_path: Data/Training_Validation
+  sample_rate: 22050
+  bins_per_semitone: 3
+  n_octaves: 6
+  fmin: 32.7
+  hop_length: 512
+  n_time_frames: 50
+
+model:
+  learning_rate: 0.001
+  num_epochs: 5
+  batch_size: 4
+  
