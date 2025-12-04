@@ -80,6 +80,12 @@ def compute_hcqt(y, sr, harmonics=[0.5,1,2,3,4],
     hcqt = np.stack(hcqt_list, axis=0)
     return hcqt, freqs
 
+def _to_numpy_if_tensor(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    return x
+
+
 def plot_sample_and_label(sample, label, sr=None, hop_length=None, output_path="sample_and_label.png"):
     """
     sample: (C, T, F)
@@ -87,8 +93,18 @@ def plot_sample_and_label(sample, label, sr=None, hop_length=None, output_path="
     output_path: file to write the composite PNG visualization
     """
 
+    sample = _to_numpy_if_tensor(sample)
+    label = _to_numpy_if_tensor(label)
+
+    if sample.ndim != 3:
+        raise ValueError(f"Expected sample with 3 dims (C, T, F), got {sample.shape}")
+
+    if label.ndim == 3 and label.shape[-1] == 1:
+        label = label[..., 0]
+    elif label.ndim != 2:
+        raise ValueError(f"Expected label with shape (T, F) or (T, F, 1), got {label.shape}")
+
     C, T, F = sample.shape
-    label = label[:, :, 0]  # remove last dim → (T, F)
 
     # Pick harmonic 0 (fundamental layer)
     hcqt_slice = sample[0].T        # → (F, T)
@@ -133,10 +149,24 @@ def iter_samples_for_track(hcqt, target_salience, n_time_frames):
     """
     
     #GETTING slices for samples 
+    if target_salience.ndim == 3 and target_salience.shape[-1] == 1:
+        target_salience_base = target_salience[..., 0]
+    elif target_salience.ndim == 2:
+        target_salience_base = target_salience
+    else:
+        raise ValueError(
+            "target_salience must have shape (T, F) or (T, F, 1); "
+            f"got {target_salience.shape}"
+        )
+
     T = hcqt.shape[1]
     for t_idx in range(0, T - n_time_frames + 1):
         sample = hcqt[:, t_idx : t_idx + n_time_frames, :]
-        label = target_salience[t_idx : t_idx + n_time_frames, :, np.newaxis]
+        label_slice = target_salience_base[t_idx : t_idx + n_time_frames, :]
+        if isinstance(label_slice, torch.Tensor):
+            label = label_slice.unsqueeze(-1)
+        else:
+            label = label_slice[:, :, np.newaxis]
         yield sample, label, t_idx
 
 def visualize(model, hcqt, salience):

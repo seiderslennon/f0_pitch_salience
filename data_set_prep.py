@@ -15,6 +15,7 @@ class HCQTDataset(Dataset):
         self.data_path = Path(config["dataset"]["dataset_path"])
         self.bins_per_octave = config["dataset"]["bins_per_semitone"] * 12
         self.n_octaves = config["dataset"]["n_octaves"]
+        self.n_time_frames = config["dataset"]["n_time_frames"]
         self.cqt_freq = librosa.cqt_frequencies(
             n_bins=self.bins_per_octave * self.n_octaves, 
             fmin=config["dataset"]["fmin"], 
@@ -23,11 +24,9 @@ class HCQTDataset(Dataset):
         with open(config["dataset"]["json_path"], "r") as f:
             self.metadata = json.load(f)
 
-        self.songs = []
-        self.hcqts = []
-        self.targets = []
+        self.samples = []
+        self.labels = []
         for song_name, info in tqdm.tqdm(self.metadata.items(), total=len(self.metadata), desc="processing HCQTs and targets"):
-            self.songs.append(song_name)
             audio, _ = librosa.load((self.data_path / info["audio_path"]), sr=self.sr)
             pitch_df = pd.read_csv(self.data_path / info["pitch_path"], header=None, names=["seconds", "pitch"])
             
@@ -40,23 +39,22 @@ class HCQTDataset(Dataset):
             times = librosa.frames_to_time(np.arange(hcqt.shape[1]), sr=self.sr, hop_length=config["dataset"]["hop_length"])
             target_salience = utils.f0_to_salience_time_major(pitch_df["seconds"], pitch_df["pitch"], freqs_hz, times, sigma_cents=25.0)
 
-            self.hcqts.append(hcqt)
-            self.targets.append(target_salience)
-            if debug:
-                break
+            for sample, label, _ in utils.iter_samples_for_track(hcqt, target_salience, self.n_time_frames):
+                self.samples.append(sample)
+                self.labels.append(label)
+
+            if debug: break
 
     def __len__(self):
-        return len(self.metadata)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        X = torch.tensor(self.hcqts[idx], dtype=torch.float32)   # (C, T, F)
-        y = torch.tensor(self.targets[idx], dtype=torch.float32)    # (T, F, 1)
-        # metadata = self.metadata[str(self.songs[idx])]
-        # return X, y, metadata
+        X = torch.tensor(self.samples[idx], dtype=torch.float32)   # (C, n_time_frames, F)
+        y = torch.tensor(self.labels[idx], dtype=torch.float32)    # (n_time_frames, F, 1)
         return X, y
 
-def get_dataloaders(config):
-    dataset = HCQTDataset(config)
+def get_dataloaders(config, debug=False):
+    dataset = HCQTDataset(config, debug=debug)
     num_samples = len(dataset)
     split_idx = int(float(config["dataset"]["split"]) * num_samples)
     if num_samples > 1:

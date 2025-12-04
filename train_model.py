@@ -31,8 +31,8 @@ class PitchSalience(nn.Module):
         # no sigmoid at the end here, because we are using BCEWithLogitsLoss
         return x
 
-def train_model(config, model, train_loader, val_loader):
-    loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.ones([1]) * 10)
+def train_model(config, model, train_loader, val_loader, device):
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.ones([1], device=device) * 10)
     optimizer = torch.optim.Adam(model.parameters(), config["model"]["learning_rate"])
 
     for epoch in range(config["model"]["num_epochs"]):
@@ -49,7 +49,7 @@ def train_model(config, model, train_loader, val_loader):
             loss.backward()
             optimizer.step()
 
-            if batch_idx % 2 == 0:
+            if batch_idx % 10 == 0:
                 print(f"  Batch {batch_idx}, loss = {loss.item():.4f}")
 
         # simple validation
@@ -71,6 +71,11 @@ if __name__ == "__main__":
         default="configs/cqt.yaml",
         help="Path to YAML configuration file.",
     )
+    parser.add_argument(
+        "--debug-dataset",
+        action="store_true",
+        help="Load only a single track to speed up iteration.",
+    )
     args = parser.parse_args()
 
     with open(args.config, "r") as config_file:
@@ -81,11 +86,12 @@ if __name__ == "__main__":
     print("Using device:", device)
 
     model = PitchSalience().to(device)
-    train_loader, val_loader = data_set_prep.get_dataloaders(config)
+    train_loader, val_loader = data_set_prep.get_dataloaders(
+        config, debug=args.debug_dataset
+    )
 
-    train_model(config, model, train_loader, val_loader)
+    train_model(config, model, train_loader, val_loader, device)
     torch.save(model, model_path)
 
     X_batch, y_batch = next(iter(train_loader))
     fig = utils.visualize(model, X_batch, y_batch)
-
