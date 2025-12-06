@@ -2,35 +2,12 @@ import argparse
 from pathlib import Path
 import torch
 from torch import nn
+import torch.nn.functional as F
 import data_set_prep
 import utils
 import yaml
 import matplotlib.pyplot as plt
-
-class PitchSalience(nn.Module):
-    def __init__(self):
-        super(PitchSalience, self).__init__()
-        self.conv1 = nn.Conv2d(5, 16, (3, 3), padding="same")
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 16, (3, 3), padding="same")
-        self.bn2 = nn.BatchNorm2d(16)
-        self.conv3 = nn.Conv2d(16, 1, (3, 3), padding="same")
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        # input is (batch, channels, time, freq)
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.conv3(x)  # (batch, 1, time, freq)
-
-        x = torch.transpose(x, 1, 2)  # (batch, time, 1, freq)
-        x = torch.transpose(x, 2, 3)  # (batch, time, freq, 1)
-        # no sigmoid at the end here, because we are using BCEWithLogitsLoss
-        return x
+from models import PitchSalience, PitchSalienceUnet
 
 def train_model(config, model, train_loader, val_loader, device):
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.ones([1], device=device) * 10)
@@ -67,16 +44,8 @@ def train_model(config, model, train_loader, val_loader, device):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train pitch salience model.")
-    parser.add_argument(
-        "--config",
-        default="configs/cqt.yaml",
-        help="Path to YAML configuration file.",
-    )
-    parser.add_argument(
-        "--debug-dataset",
-        action="store_true",
-        help="Load only a single track to speed up iteration.",
-    )
+    parser.add_argument("--config", default="configs/cqt.yaml")
+    parser.add_argument("--debug-dataset", action="store_true")
     args = parser.parse_args()
 
     with open(args.config, "r") as config_file:
@@ -101,7 +70,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Using device:", device)
 
-    model = PitchSalience().to(device)
+    model = PitchSalienceUnet().to(device)
     train_loader, val_loader = data_set_prep.get_dataloaders(
         config, debug=args.debug_dataset
     )

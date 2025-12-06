@@ -3,7 +3,7 @@ import torch
 from torch import nn
 import yaml
 import data_set_prep
-from train_model import PitchSalience
+from models import PitchSalience, PitchSalienceUnet
 import utils
 
 
