@@ -1,3 +1,4 @@
+import copy
 import json
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -9,20 +10,27 @@ import tqdm
 import utils
 
 class HCQTDataset(Dataset):
-    def __init__(self, config, debug=False):
+    def __init__(self, config, debug=False, metadata_override=None):
         self.metadata = None
         self.sr = config["dataset"]["sample_rate"]
         self.data_path = Path(config["dataset"]["dataset_path"])
         self.bins_per_octave = config["dataset"]["bins_per_semitone"] * 12
         self.n_octaves = config["dataset"]["n_octaves"]
         self.n_time_frames = config["dataset"]["n_time_frames"]
+        self.harmonics = config["dataset"].get("harmonics", [0.5, 1, 2, 3, 4])
         self.cqt_freq = librosa.cqt_frequencies(
             n_bins=self.bins_per_octave * self.n_octaves, 
             fmin=config["dataset"]["fmin"], 
             bins_per_octave=self.bins_per_octave
         )
-        with open(config["dataset"]["json_path"], "r") as f:
-            self.metadata = json.load(f)
+        if metadata_override is not None:
+            self.metadata = metadata_override
+        else:
+            json_path = config["dataset"].get("json_path")
+            if not json_path:
+                raise ValueError("json_path is required when no metadata_override is provided.")
+            with open(json_path, "r") as f:
+                self.metadata = json.load(f)
 
         self.samples = []
         self.labels = []
@@ -31,6 +39,7 @@ class HCQTDataset(Dataset):
             pitch_df = pd.read_csv(self.data_path / info["pitch_path"], header=None, names=["seconds", "pitch"])
             
             hcqt, freqs_hz = utils.compute_hcqt(audio, self.sr,
+                harmonics=self.harmonics,
                 bins_per_octave=self.bins_per_octave,
                 n_octaves = self.n_octaves,
                 hop_length = config["dataset"]["hop_length"],
@@ -71,6 +80,34 @@ def get_dataloaders(config, debug=False):
 
     return train_loader, val_loader
 
+
+def build_audio_pitch_metadata(dataset_root, audio_subdir="Audio", pitch_subdir="Annotations/F0", pitch_suffix="_f0.csv"):
+    dataset_root = Path(dataset_root)
+    audio_dir = dataset_root / audio_subdir
+    pitch_dir = dataset_root / pitch_subdir
+
+    metadata = {}
+    for audio_file in sorted(audio_dir.glob("*.wav")):
+        track_stem = audio_file.stem
+        pitch_file = pitch_dir / f"{track_stem}{pitch_suffix}"
+
+        metadata[track_stem] = {
+            "audio_path": audio_file.relative_to(dataset_root).as_posix(),
+            "pitch_path": pitch_file.relative_to(dataset_root).as_posix(),
+        }
+
+    return metadata
+
+def get_evaluation_dataloader(config, dataset_root, batch_size=None, debug=False):
+    eval_config = copy.deepcopy(config)
+    eval_config["dataset"]["dataset_path"] = str(dataset_root)
+
+    metadata = build_audio_pitch_metadata(dataset_root)
+    dataset = HCQTDataset(eval_config, debug=debug, metadata_override=metadata)
+
+    effective_batch_size = batch_size or config["model"]["batch_size"]
+    return DataLoader(dataset, batch_size=effective_batch_size, shuffle=False)
+
 if __name__ == "__main__":
     import yaml
     with open("configs/cqt.yaml", "r") as config_file:
@@ -82,5 +119,6 @@ if __name__ == "__main__":
     print("y shape:", y.shape)
     for sample, label, t0 in utils.iter_samples_for_track(X, y, 50):
         print("Plotting window starting at:", t0)
-        utils.plot_sample_and_label(sample, label)
+        harmonic_labels = [f"{h}×" for h in dataset.harmonics]
+        utils.plot_sample_and_label(sample, label, harmonic_labels=harmonic_labels)
         break

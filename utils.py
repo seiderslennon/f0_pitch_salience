@@ -86,10 +86,11 @@ def _to_numpy_if_tensor(x):
     return x
 
 
-def plot_sample_and_label(sample, label, sr=None, hop_length=None, output_path="sample_and_label.png"):
+def plot_sample_and_label(sample, label, sr=None, hop_length=None, output_path="sample_and_label.png", harmonic_labels=None):
     """
     sample: (C, T, F)
     label:  (T, F, 1)
+    harmonic_labels: optional list describing each HCQT channel (len=C)
     output_path: file to write the composite PNG visualization
     """
 
@@ -105,35 +106,43 @@ def plot_sample_and_label(sample, label, sr=None, hop_length=None, output_path="
         raise ValueError(f"Expected label with shape (T, F) or (T, F, 1), got {label.shape}")
 
     C, T, F = sample.shape
-
-    # Pick harmonic 0 (fundamental layer)
-    hcqt_slice = sample[0].T        # → (F, T)
     salience_slice = label.T        # → (F, T)
 
-    fig, ax = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
+    n_rows = C + 1  # one row per harmonic + salience row
+    fig, axes = plt.subplots(n_rows, 1, figsize=(12, 2.5 * n_rows), sharex=True)
 
-    # 1) Plot HCQT magnitude
-    im1 = ax[0].imshow(
-        hcqt_slice,
-        aspect='auto',
-        origin='lower',
-        interpolation='nearest'
-    )
-    ax[0].set_title("HCQT")
-    ax[0].set_ylabel("Frequency bin")
-    fig.colorbar(im1, ax=ax[0], fraction=0.015)
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
-    # 2) Plot target salience
-    im2 = ax[1].imshow(
+    # Plot every HCQT harmonic/channel
+    for idx in range(C):
+        ax = axes[idx]
+        channel_img = sample[idx].T  # (F, T)
+        im = ax.imshow(
+            channel_img,
+            aspect='auto',
+            origin='lower',
+            interpolation='nearest'
+        )
+        if harmonic_labels and idx < len(harmonic_labels):
+            ax.set_title(f"HCQT channel {idx} ({harmonic_labels[idx]})")
+        else:
+            ax.set_title(f"HCQT channel {idx}")
+        ax.set_ylabel("Frequency bin")
+        fig.colorbar(im, ax=ax, fraction=0.015)
+
+    # Plot target salience in the final row
+    ax = axes[-1]
+    im = ax.imshow(
         salience_slice,
         aspect='auto',
         origin='lower',
         interpolation='nearest'
     )
-    ax[1].set_title("Target Salience")
-    ax[1].set_xlabel("Time frames")
-    ax[1].set_ylabel("Frequency bin")
-    fig.colorbar(im2, ax=ax[1], fraction=0.015)
+    ax.set_title("Target Salience")
+    ax.set_xlabel("Time frames")
+    ax.set_ylabel("Frequency bin")
+    fig.colorbar(im, ax=ax, fraction=0.015)
 
     plt.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -169,15 +178,12 @@ def iter_samples_for_track(hcqt, target_salience, n_time_frames):
             label = label_slice[:, :, np.newaxis]
         yield sample, label, t_idx
 
-def visualize(model, hcqt, salience):
+def visualize(predicted_salience, hcqt, salience, fname=None):
     """
     Visualize model input, target salience, and prediction.
     hcqt:    torch.Tensor (B, C, T, F)
     salience torch.Tensor (B, T, F, 1)
     """
-    model.eval()
-    with torch.no_grad():
-        predicted_salience = model(hcqt)
 
     fig = plt.figure(figsize=(12, 12))
     n_examples = min(3, hcqt.shape[0])  # show up to 3 examples
@@ -212,6 +218,10 @@ def visualize(model, hcqt, salience):
         plt.title("Predicted Salience")
         plt.axis("tight")
 
+    output_fname = "model_salience.png"
+    if fname is not None:
+        output_fname = fname
+
     plt.tight_layout()
-    fig.savefig("model_salience.png", dpi=150, bbox_inches="tight")
+    fig.savefig(output_fname, dpi=150, bbox_inches="tight")
     plt.close(fig)

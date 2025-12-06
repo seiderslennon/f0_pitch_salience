@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 import torch
 from torch import nn
 import data_set_prep
@@ -49,7 +50,7 @@ def train_model(config, model, train_loader, val_loader, device):
             loss.backward()
             optimizer.step()
 
-            if batch_idx % 10 == 0:
+            if batch_idx % 50 == 0:
                 print(f"  Batch {batch_idx}, loss = {loss.item():.4f}")
 
         # simple validation
@@ -80,8 +81,23 @@ if __name__ == "__main__":
 
     with open(args.config, "r") as config_file:
         config = yaml.safe_load(config_file)
-    model_path = str(config["experiment_name"] + ".pth") 
-    
+
+    exp_name = str(config["experiment_name"])
+    base_model_path = Path(exp_name)
+    if base_model_path.suffix != ".pth":
+        base_model_path = base_model_path.with_suffix(".pth")
+
+    model_path = base_model_path
+    if model_path.exists():
+        counter = 0
+        while True:
+            # ensure each training run gets a unique checkpoint filename
+            candidate = base_model_path.with_name(f"{base_model_path.stem}_{counter}{base_model_path.suffix}")
+            if not candidate.exists():
+                model_path = candidate
+                break
+            counter += 1
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Using device:", device)
 
@@ -94,4 +110,9 @@ if __name__ == "__main__":
     torch.save(model, model_path)
 
     X_batch, y_batch = next(iter(train_loader))
-    fig = utils.visualize(model, X_batch, y_batch)
+    X_batch = X_batch.to(device)
+    y_batch = y_batch.to(device)
+    model.eval()
+    with torch.no_grad():
+        predicted_salience = model(X_batch)
+    utils.visualize(predicted_salience, X_batch, y_batch)

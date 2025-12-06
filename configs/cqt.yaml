@@ -10,9 +10,9 @@ dataset:
   fmin: 32.7
   hop_length: 512
   n_time_frames: 50
+  harmonics: [0.5, 1, 2, 3, 4]
 
 model:
   learning_rate: 0.001
-  num_epochs: 5
-  batch_size: 4
-  
+  num_epochs: 3
+  batch_size: 8
